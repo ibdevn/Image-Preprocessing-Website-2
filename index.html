@@ -2,193 +2,59 @@
 <html lang="de">
 <head>
 <meta charset="UTF-8">
-<title>IAM Line Crop Tool</title>
-
-<style>
-body{
-font-family:sans-serif;
-background:#111;
-color:white;
-text-align:center;
-}
-
-canvas{
-border:2px solid #555;
-margin-top:20px;
-background:black;
-}
-
-button{
-padding:10px;
-margin:10px;
-}
-</style>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Image Crop → IAM Lines</title>
+<link rel="stylesheet" href="crop_style.css">
 </head>
 
 <body>
-
-<h2>IAM Line Crop Tool</h2>
-<input type="file" id="file">
-
-<br>
-
-<canvas id="canvas" width="600" height="200"></canvas>
-
-<br>
-
-<button id="savePNG">Save PNG</button>
-<button id="saveNPY">Save NPY</button>
-
-<p id="info"></p>
-
-<script>
-
-const canvas = document.getElementById("canvas")
-const ctx = canvas.getContext("2d")
-
-let img=null
-
-document.getElementById("file").onchange=e=>{
-
-const file=e.target.files[0]
-
-const reader=new FileReader()
-
-reader.onload=ev=>{
-img=new Image()
-
-img.onload=()=>{
-
-const scale=canvas.height/img.height
-const w=img.width*scale
-
-ctx.clearRect(0,0,canvas.width,canvas.height)
-
-ctx.drawImage(img,0,0,w,canvas.height)
-
-}
-
-img.src=ev.target.result
-}
-
-reader.readAsDataURL(file)
-
-}
-
-function getProcessed(){
-
-const targetHeight=32
-
-const temp=document.createElement("canvas")
-const tctx=temp.getContext("2d")
-
-const ratio=targetHeight/canvas.height
-const newW=Math.round(canvas.width*ratio)
-
-temp.width=newW
-temp.height=targetHeight
-
-tctx.drawImage(canvas,0,0,newW,targetHeight)
-
-const imgData=tctx.getImageData(0,0,newW,targetHeight).data
-
-const gray=new Float32Array(newW*targetHeight)
-
-for(let i=0;i<gray.length;i++){
-
-const r=imgData[i*4]
-const g=imgData[i*4+1]
-const b=imgData[i*4+2]
-
-const v=0.299*r+0.587*g+0.114*b
-
-gray[i]=v/255.0
-
-}
-
-return {data:gray,width:newW,height:targetHeight}
-
-}
-
-function savePNG(){
-
-const p=getProcessed()
-
-const c=document.createElement("canvas")
-c.width=p.width
-c.height=p.height
-
-const cctx=c.getContext("2d")
-
-const imgData=cctx.createImageData(p.width,p.height)
-
-for(let i=0;i<p.data.length;i++){
-
-const v=Math.round(p.data[i]*255)
-
-imgData.data[i*4]=v
-imgData.data[i*4+1]=v
-imgData.data[i*4+2]=v
-imgData.data[i*4+3]=255
-
-}
-
-cctx.putImageData(imgData,0,0)
-
-c.toBlob(b=>{
-
-const a=document.createElement("a")
-a.href=URL.createObjectURL(b)
-a.download="iam_line.png"
-a.click()
-
-})
-
-}
-
-function saveNPY(){
-
-const p=getProcessed()
-
-const shape=[1,p.height,p.width]
-
-const dict=`{'descr': '<f4', 'fortran_order': False, 'shape': (${shape.join(",")}), }`
-
-const enc=new TextEncoder()
-
-const header=enc.encode(dict+" ".repeat(64-dict.length)+"\n")
-
-const magic=new Uint8Array([147,78,85,77,80,89])
-const ver=new Uint8Array([1,0])
-
-const hlen=new Uint16Array([header.length])
-
-const data=new Float32Array(p.data)
-
-const total=new Uint8Array(
-magic.length+ver.length+2+header.length+data.byteLength
-)
-
-let off=0
-total.set(magic,off); off+=magic.length
-total.set(ver,off); off+=ver.length
-total.set(new Uint8Array(hlen.buffer),off); off+=2
-total.set(header,off); off+=header.length
-total.set(new Uint8Array(data.buffer),off)
-
-const blob=new Blob([total])
-
-const a=document.createElement("a")
-a.href=URL.createObjectURL(blob)
-a.download="iam_line.npy"
-a.click()
-
-}
-
-document.getElementById("savePNG").onclick=savePNG
-document.getElementById("saveNPY").onclick=saveNPY
-
-</script>
-
+<div class="container">
+
+<header>
+<h1>Bild-Zuschneider</h1>
+<p>Zuschneiden, zoomen und herunterladen</p>
+</header>
+
+<div class="controls">
+<div class="input-group">
+<input type="file" id="imageInput" accept="image/*">
+<label for="imageInput">📸 Bild öffnen</label>
+</div>
+</div>
+
+<div class="canvas-wrapper">
+<canvas id="canvas"></canvas>
+<div class="zoom-info" id="zoomInfo">1.0x</div>
+</div>
+
+<div class="instructions">
+<p><strong>📱 Bedienung:</strong></p>
+<p><strong>Desktop:</strong> Drag zum Verschieben | Mausrad zum Zoomen</p>
+<p><strong>Handy/Tablet:</strong> Finger zum Verschieben | Zwei Finger zum Zoomen</p>
+</div>
+
+<div class="threshold-controls">
+<div class="threshold-group">
+<label for="darkThreshold">🖤 Dunkel-Schwelle: <span id="darkValue">50</span></label>
+<input type="range" id="darkThreshold" min="0" max="100" value="50">
+</div>
+
+<div class="threshold-group">
+<label for="lightThreshold">⚪ Hell-Schwelle: <span id="lightValue">100</span></label>
+<input type="range" id="lightThreshold" min="0" max="255" value="100">
+</div>
+</div>
+
+<div class="buttons">
+<button id="saveCropBtn" class="btn-save">💾 Als NPY speichern</button>
+<button id="savePngBtn" class="btn-save">🖼️ Als PNG speichern</button>
+<button id="resetBtn" class="btn-reset">🔄 Zurücksetzen</button>
+</div>
+
+<div id="message" class="message"></div>
+
+</div>
+
+<script src="crop_script.js"></script>
 </body>
 </html>
